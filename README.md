@@ -2,9 +2,9 @@
 
 A tiny, menu-bar-only macOS app that passes audio from an input device (typically a 3.5mm line-in) straight to your current output — a low-latency live monitor. Think of it as a lightweight, focused alternative to tools like LineIn or LadioCast, with selectable audio engines so you can trade latency against compatibility.
 
-<!-- Add a screenshot here once you have one:
-![LL Input menu bar](docs/screenshot.png)
--->
+<!-- Add a screenshot here once you have one: -->
+![LL Input menu bar](Resources/Screenshots/Menu Bar Dropdown.png)
+
 
 ## Features
 
