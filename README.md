@@ -27,6 +27,43 @@ A tiny, menu-bar-only macOS app that passes audio from an input device (typicall
 - macOS 13 (Ventura) or later
 - Xcode command line tools (`xcode-select --install`)
 
+## Download
+
+Prebuilt app bundles are attached to each [release](../../releases). Download the
+`.zip`, unzip it, and move **LL Input.app** to your Applications folder.
+
+### First launch (unsigned build)
+
+The prebuilt app is **ad-hoc signed, not notarized by Apple**, so macOS Gatekeeper
+will warn the first time you open it. This is expected for an open-source build —
+you only need to do this once.
+
+**Recommended: right-click → Open**
+
+1. In Finder, **right-click** (or Control-click) **LL Input.app**.
+2. Choose **Open**.
+3. In the dialog, click **Open** again.
+
+macOS remembers your choice, so afterward it launches normally with a double-click.
+
+**If macOS still blocks it** (newer versions may say the app "is damaged" or was
+"not opened"), clear the quarantine flag in Terminal:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/LL Input.app"
+```
+
+Then open it normally. You can also allow it under **System Settings → Privacy &
+Security** — after a blocked launch, an **"Open Anyway"** button appears there.
+
+**Prefer no prompt at all?** Build it yourself — a locally built app doesn't get
+quarantined:
+
+```bash
+./build.sh
+open "dist/LL Input.app"
+```
+
 ## Build & run
 
 ```bash
