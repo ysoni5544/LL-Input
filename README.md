@@ -9,7 +9,7 @@ A tiny, menu-bar-only macOS app that passes audio from an input device (typicall
 ![First Time Setup](Screenshots/Setup%20Screen.png)
 
 # Settings
-![Settings](Screenshots/Setings.png)
+![Settings](Screenshots/Settings.png)
 
 ## Features
 
