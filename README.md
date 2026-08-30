@@ -4,14 +4,18 @@ A tiny, menu-bar-only macOS app that passes audio from an input device (typicall
 
 ## Screenshots
 
-**Menu Bar**
-![LL Input menu bar](Screenshots/Menu%20Bar%20Dropdown.png)
-
-**First Time Setup**
-![First Time Setup](Screenshots/Setup%20Screen.png)
-
-**Settings**
-![Settings](Screenshots/Settings.png)
+<table>
+  <tr>
+    <td align="center"><b>Menu Bar</b></td>
+    <td align="center"><b>Setup Panel</b></td>
+    <td align="center"><b>Settings</b></td>
+  </tr>
+  <tr>
+    <td><img src="Screenshots/Menu%20Bar%20Dropdown.png" alt="drawing" height="400"/></td>
+    <td><img src="Screenshots/Setup%20Screen.png" alt="drawing" height="400"/></td>
+    <td><img src="Screenshots/Settings.png" alt="drawing" height="400"/></td>
+  </tr>
+</table>
 
 ## Features
 
