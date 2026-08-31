@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var idlePollTimer: Timer?
     private var silentSince: Date?
     private let silenceThreshold: Float = 0.003 // ~ -50 dBFS
+    private let silenceGracePeriod: TimeInterval = 5 // wait before countdown begins
     private var helpWindow: NSWindow?
     private var setupPanel: SetupPanelController?
 
@@ -530,7 +531,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let since = silentSince {
             let elapsed = Date().timeIntervalSince(since)
-            let remaining = Double(idleTimeoutSeconds) - elapsed
+            // Grace period: don't begin the countdown until silence has persisted
+            // for a few seconds, so brief pauses don't kick off the timer.
+            guard elapsed >= silenceGracePeriod else { return }
+            let remaining = Double(idleTimeoutSeconds) - (elapsed - silenceGracePeriod)
             if remaining <= 0 {
                 // Timed out — stop listening.
                 engine.stop()
