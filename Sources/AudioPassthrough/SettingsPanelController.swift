@@ -83,7 +83,7 @@ final class SettingsPanelController: NSWindowController {
         boostCheck.state = settings.boostEnabled ? .on : .off
         stack.addArrangedSubview(boostCheck)
 
-        let masterCaption = NSTextField(labelWithString: "Master volume limit")
+        let masterCaption = NSTextField(labelWithString: "Master Input Volume Limit")
         masterCaption.font = NSFont.systemFont(ofSize: 12)
         masterCaption.textColor = .secondaryLabelColor
         stack.addArrangedSubview(masterCaption)
