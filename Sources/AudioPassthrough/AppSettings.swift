@@ -41,6 +41,19 @@ enum SliderType: String, CaseIterable {
     }
 }
 
+/// How the idle countdown is shown in the menu bar.
+enum CountdownStyle: String, CaseIterable {
+    case rounded   // "5m" until under a minute, then "45s"
+    case seconds   // classic "M:SS" clock, always exact seconds
+
+    var title: String {
+        switch self {
+        case .rounded: return "Rounded (minutes, then seconds)"
+        case .seconds: return "Exact (M:SS)"
+        }
+    }
+}
+
 /// Central, persisted app settings.
 final class AppSettings {
     static let shared = AppSettings()
@@ -52,6 +65,13 @@ final class AppSettings {
         static let engine = "engineKind"
         static let boostEnabled = "boostEnabled"
         static let masterLimit = "masterVolumeLimit"
+        static let countdownStyle = "countdownStyle"
+    }
+
+    /// Menu-bar idle countdown display style. Defaults to rounded.
+    var countdownStyle: CountdownStyle {
+        get { CountdownStyle(rawValue: d.string(forKey: Key.countdownStyle) ?? "") ?? .rounded }
+        set { d.set(newValue.rawValue, forKey: Key.countdownStyle) }
     }
 
     var sliderType: SliderType {
@@ -110,6 +130,7 @@ final class AppSettings {
     /// Reset every app setting to defaults, including remembered device/timeout.
     func resetAllToDefault() {
         for key in [Key.sliderType, Key.hidden, Key.engine, Key.boostEnabled, Key.masterLimit,
+                    Key.countdownStyle,
                     "idleTimeoutSeconds", "selectedInputUID", "inputVolume"] {
             d.removeObject(forKey: key)
         }

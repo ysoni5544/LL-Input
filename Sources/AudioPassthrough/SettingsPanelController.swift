@@ -12,6 +12,7 @@ final class SettingsPanelController: NSWindowController {
     private let settings = AppSettings.shared
     private var sliderPopup: NSPopUpButton!
     private var enginePopup: NSPopUpButton!
+    private var countdownPopup: NSPopUpButton!
     private var launchAtLoginCheck: NSButton!
     private var boostCheck: NSButton!
     private var masterSlider: NSSlider!
@@ -20,10 +21,11 @@ final class SettingsPanelController: NSWindowController {
 
     private let sliderTypes: [SliderType] = SliderType.allCases
     private let engines: [EngineKind] = EngineKind.allCases
+    private let countdownStyles: [CountdownStyle] = CountdownStyle.allCases
 
     init() {
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 600),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 660),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "LL Input — Settings"
         win.center()
@@ -83,7 +85,7 @@ final class SettingsPanelController: NSWindowController {
         boostCheck.state = settings.boostEnabled ? .on : .off
         stack.addArrangedSubview(boostCheck)
 
-        let masterCaption = NSTextField(labelWithString: "Master Input Volume Limit")
+        let masterCaption = NSTextField(labelWithString: "Master input volume")
         masterCaption.font = NSFont.systemFont(ofSize: 12)
         masterCaption.textColor = .secondaryLabelColor
         stack.addArrangedSubview(masterCaption)
@@ -118,6 +120,17 @@ final class SettingsPanelController: NSWindowController {
         enginePopup.target = self
         enginePopup.action = #selector(engineChanged)
         stack.addArrangedSubview(enginePopup)
+
+        // --- Idle countdown style ---
+        stack.addArrangedSubview(sectionTitle("Idle Countdown Display"))
+        countdownPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        countdownPopup.addItems(withTitles: countdownStyles.map { $0.title })
+        if let idx = countdownStyles.firstIndex(of: settings.countdownStyle) {
+            countdownPopup.selectItem(at: idx)
+        }
+        countdownPopup.target = self
+        countdownPopup.action = #selector(countdownStyleChanged)
+        stack.addArrangedSubview(countdownPopup)
 
         // --- Menu visibility ---
         stack.addArrangedSubview(sectionTitle("Show Menu Items"))
@@ -207,6 +220,12 @@ final class SettingsPanelController: NSWindowController {
         onEngineChange?(kind)
     }
 
+    @objc private func countdownStyleChanged() {
+        let idx = max(0, countdownPopup.indexOfSelectedItem)
+        settings.countdownStyle = countdownStyles[idx]
+        // Takes effect on the next countdown tick; no immediate redraw needed.
+    }
+
     @objc private func hideToggled(_ sender: NSButton) {
         guard let pair = hideChecks.first(where: { $0.1 == sender }) else { return }
         // Checked = shown, so hidden = (state == .off).
@@ -234,6 +253,7 @@ final class SettingsPanelController: NSWindowController {
         // Reflect defaults in the UI.
         if let idx = sliderTypes.firstIndex(of: settings.sliderType) { sliderPopup.selectItem(at: idx) }
         if let idx = engines.firstIndex(of: settings.engineKind) { enginePopup.selectItem(at: idx) }
+        if let idx = countdownStyles.firstIndex(of: settings.countdownStyle) { countdownPopup.selectItem(at: idx) }
         boostCheck.state = settings.boostEnabled ? .on : .off
         masterSlider.maxValue = Double(settings.maxGain)
         masterSlider.doubleValue = Double(settings.masterLimit)

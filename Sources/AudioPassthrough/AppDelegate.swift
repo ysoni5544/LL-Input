@@ -477,11 +477,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let secs = sender.representedObject as? Int else { return }
         idleTimeoutSeconds = secs
         UserDefaults.standard.set(secs, forKey: "idleTimeoutSeconds")
+        // Switching timer options restarts the countdown from scratch.
         silentSince = nil
         if engine.isRunning {
             startIdlePollIfNeeded()
-            // If timeout was turned off, drop any countdown text back to the icon.
-            if secs == 0 { updateStatusIcon(active: true) }
+            // Clear any visible countdown back to the plug icon; the next poll
+            // re-shows a countdown only if the input is currently silent.
+            updateStatusIcon(active: true)
         }
         rebuildMenu()
     }
@@ -542,12 +544,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Big-font countdown shown in the menu bar while silence is being timed.
+    /// Format depends on the user's chosen countdown style.
     private func updateCountdownIcon(remaining seconds: Int) {
         let text: String
-        if seconds >= 60 {
-            text = String(format: "%d:%02d", seconds / 60, seconds % 60)
-        } else {
-            text = "\(seconds)"
+        switch AppSettings.shared.countdownStyle {
+        case .rounded:
+            // Whole minutes ("5m") until under a minute, then seconds ("45s").
+            if seconds >= 60 {
+                text = "\(Int(ceil(Double(seconds) / 60.0)))m"
+            } else {
+                text = "\(seconds)s"
+            }
+        case .seconds:
+            // Classic exact clock.
+            if seconds >= 60 {
+                text = String(format: "%d:%02d", seconds / 60, seconds % 60)
+            } else {
+                text = "\(seconds)"
+            }
         }
         let attr = NSAttributedString(string: text, attributes: [
             .font: NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .bold),
