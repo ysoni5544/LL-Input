@@ -18,8 +18,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var selectedInputID: AudioDeviceID?
     private var lastKnownOutputID: AudioDeviceID = 0
     private var activeMode: Preset?
-    private var inputVolume: Float = 1.0
+    private var inputVolume: Float = 1.0  // display fraction: 1.0 == slider's 100%
     private weak var volumeMenuView: VolumeMenuItemView?
+
+    /// Convert the displayed volume fraction (slider's own scale, 1.0 = 100%)
+    /// into the actual linear gain, scaled by the master limit and capped at the
+    /// boost ceiling. The menu/setup sliders show 0–100% (or 0–200% with boost),
+    /// but their 100% maps to the master limit.
+    private func actualGain(forDisplay display: Float) -> Float {
+        let limit = AppSettings.shared.masterLimit          // 0…maxGain
+        let g = display * limit                              // 100% display → limit
+        return min(g, AppSettings.shared.maxGain)
+    }
+
+    /// Push the current display volume to the engine as real gain.
+    private func applyVolumeToEngine() {
+        engine.volume = actualGain(forDisplay: inputVolume)
+    }
 
     // Idle-timeout: stop listening after this many seconds of silence. 0 = off.
     // Defaults to 5 minutes; overridden by any saved value on launch.
@@ -148,7 +163,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             case .dualDeviceHAL: engine = DualDeviceHALEngine()
             }
         }
-        engine.volume = inputVolume
+        applyVolumeToEngine()
     }
 
     private func saveSelectedInput() {
@@ -234,11 +249,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // ---- Input volume slider (inline) ----
         if !settings.isHidden(.volume) {
             let volItem = NSMenuItem()
-            let view = VolumeMenuItemView(gain: inputVolume, sliderType: settings.sliderType)
+            let view = VolumeMenuItemView(gain: inputVolume, sliderType: settings.sliderType,
+                                          maxDisplay: settings.maxGain)
             view.onChange = { [weak self] g in
                 guard let self = self else { return }
                 self.inputVolume = g
-                self.engine.volume = g
+                self.applyVolumeToEngine()
                 UserDefaults.standard.set(g, forKey: "inputVolume")
             }
             volItem.view = view
@@ -391,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         saveSelectedInput()
         // Reset volume to unity when the input changes.
         inputVolume = 1.0
-        engine.volume = 1.0
+        applyVolumeToEngine()
         UserDefaults.standard.set(Float(1.0), forKey: "inputVolume")
         volumeMenuView?.setGain(1.0)
         // Changing the input only restarts if already listening; it doesn't
@@ -439,7 +455,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         engineKind = kind
         engine.desiredSampleRate = rate
         engine.desiredBufferFrames = frames
-        engine.volume = inputVolume
+        engine.volume = actualGain(forDisplay: inputVolume)
         AppSettings.shared.engineKind = kind
         wireEngineCallbacks()
 
@@ -560,12 +576,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.idleTimeoutSeconds = idle
             UserDefaults.standard.set(idle, forKey: "idleTimeoutSeconds")
             self.inputVolume = volume
-            self.engine.volume = volume
+            self.applyVolumeToEngine()
             UserDefaults.standard.set(volume, forKey: "inputVolume")
             self.applyMode(mode)
 
             self.restart()
-            self.engine.volume = volume // reassert after (re)start
+            self.applyVolumeToEngine() // reassert after (re)start
             if self.engine.isRunning { self.startIdlePollIfNeeded() }
             self.updateStatusIcon(active: self.engine.isRunning)
             self.rebuildMenu()
@@ -574,8 +590,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // Live volume changes while the panel is open (if already listening).
         panel.onVolumeChange = { [weak self] v in
-            self?.inputVolume = v
-            self?.engine.volume = v
+            guard let self = self else { return }
+            self.inputVolume = v
+            self.applyVolumeToEngine()
             UserDefaults.standard.set(v, forKey: "inputVolume")
         }
 
@@ -606,12 +623,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Re-apply defaults to live state.
             self.idleTimeoutSeconds = 300
             self.inputVolume = 1.0
-            self.engine.volume = 1.0
+            self.applyVolumeToEngine()
             self.selectedInputID = nil
             if self.engineKind != AppSettings.shared.engineKind {
                 self.switchEngine(to: AppSettings.shared.engineKind)
             }
             self.applyMode(.game)
+            self.rebuildMenu()
+        }
+        // Master limit / boost changed in Settings — reapply gain and rebuild
+        // the menu so the volume slider reflects the new ceiling.
+        panel.onVolumeConfigChange = { [weak self] in
+            guard let self = self else { return }
+            self.applyVolumeToEngine()
             self.rebuildMenu()
         }
 

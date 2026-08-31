@@ -169,7 +169,7 @@ final class SetupPanelController: NSWindowController {
         switch sliderType {
         case .linear:
             volumeSlider.minValue = 0
-            volumeSlider.maxValue = 2
+            volumeSlider.maxValue = Double(AppSettings.shared.maxGain)
             volumeSlider.numberOfTickMarks = 0
         case .bipolar:
             volumeSlider.minValue = -1
@@ -212,7 +212,7 @@ final class SetupPanelController: NSWindowController {
     private func sliderPosition(forGain gain: Float) -> Double {
         switch sliderType {
         case .linear:
-            return Double(min(max(gain, 0), 2))
+            return Double(min(max(gain, 0), AppSettings.shared.maxGain))
         case .bipolar:
             // gain = 10^(dB/20), dB = position*12  → position = 20*log10(gain)/12
             if gain <= 0 { return -1 }

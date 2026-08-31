@@ -50,11 +50,32 @@ final class AppSettings {
         static let sliderType = "sliderType"
         static let hidden = "hiddenMenuOptions"
         static let engine = "engineKind"
+        static let boostEnabled = "boostEnabled"
+        static let masterLimit = "masterVolumeLimit"
     }
 
     var sliderType: SliderType {
         get { SliderType(rawValue: d.string(forKey: Key.sliderType) ?? "") ?? .linear }
         set { d.set(newValue.rawValue, forKey: Key.sliderType) }
+    }
+
+    /// When true, volume can be boosted up to 200% (2.0x); otherwise capped at 100%.
+    var boostEnabled: Bool {
+        get { d.bool(forKey: Key.boostEnabled) } // defaults to false (100% cap)
+        set { d.set(newValue, forKey: Key.boostEnabled) }
+    }
+
+    /// The maximum linear gain allowed by the boost setting (1.0 or 2.0).
+    var maxGain: Float { boostEnabled ? 2.0 : 1.0 }
+
+    /// Master volume limit as a linear gain (the ceiling the menu-bar slider's
+    /// 100% maps to). Ranges 0…maxGain. Defaults to maxGain (no extra limiting).
+    var masterLimit: Float {
+        get {
+            if d.object(forKey: Key.masterLimit) == nil { return maxGain }
+            return min(d.float(forKey: Key.masterLimit), maxGain)
+        }
+        set { d.set(min(max(0, newValue), maxGain), forKey: Key.masterLimit) }
     }
 
     var hiddenOptions: Set<MenuOption> {
@@ -88,7 +109,7 @@ final class AppSettings {
 
     /// Reset every app setting to defaults, including remembered device/timeout.
     func resetAllToDefault() {
-        for key in [Key.sliderType, Key.hidden, Key.engine,
+        for key in [Key.sliderType, Key.hidden, Key.engine, Key.boostEnabled, Key.masterLimit,
                     "idleTimeoutSeconds", "selectedInputUID", "inputVolume"] {
             d.removeObject(forKey: key)
         }

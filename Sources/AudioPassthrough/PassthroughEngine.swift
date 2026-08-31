@@ -77,7 +77,13 @@ final class PassthroughEngine: PassthroughEngineProtocol {
                 let data = ch[c]
                 for i in 0..<frames { let m = abs(data[i]); if m > p { p = m } }
             }
-            self.peakLock.lock(); self.peak = p; self.peakLock.unlock()
+            // Peak-hold with time-based decay so brief dips aren't seen as silence.
+            let rate = Float(buffer.format.sampleRate > 0 ? buffer.format.sampleRate : 48_000)
+            let dt = Float(max(1, frames)) / rate
+            let decay = exp(-dt / 0.6)
+            self.peakLock.lock()
+            self.peak = max(p, self.peak * decay)
+            self.peakLock.unlock()
         }
     }
 

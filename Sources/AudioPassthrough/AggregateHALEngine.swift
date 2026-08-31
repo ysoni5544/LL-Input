@@ -14,6 +14,7 @@ final class AggregateHALEngine: PassthroughEngineProtocol {
 
     private(set) var pinnedInputID: AudioDeviceID?
     private var currentOutputID: AudioDeviceID = 0
+    private var activeSampleRate: Double = 48_000
 
     var desiredSampleRate: Double?
     var desiredBufferFrames: UInt32?
@@ -143,6 +144,7 @@ final class AggregateHALEngine: PassthroughEngineProtocol {
         }
 
         let rate = desiredSampleRate ?? AudioDevices.nominalSampleRate(inputID)
+        activeSampleRate = rate > 0 ? rate : 48_000
 
         // Master clock = input, so output drift-compensates to the line-in.
         guard let agg = AggregateDevice.create(inputUID: inUID, outputUID: outUID,
@@ -249,7 +251,16 @@ final class AggregateHALEngine: PassthroughEngineProtocol {
 
     fileprivate var scratchList: UnsafeMutableAudioBufferListPointer? { inputBufferList }
 
-    fileprivate func storePeak(_ p: Float) { peakLevel.store(p.bitPattern, ordering: .relaxed) }
+    /// Store an instantaneous buffer peak using peak-hold with time-based decay,
+    /// so brief dips between words/beats don't read as silence for idle detection.
+    fileprivate func storePeak(_ p: Float, frames: Int) {
+        let rate = Float(activeSampleRate > 0 ? activeSampleRate : 48_000)
+        let dt = Float(max(1, frames)) / rate
+        let decay = exp(-dt / 0.6)
+        let held = Float(bitPattern: peakLevel.load(ordering: .relaxed))
+        let newPeak = max(p, held * decay)
+        peakLevel.store(newPeak.bitPattern, ordering: .relaxed)
+    }
 
     enum EngineError: Error { case deviceUnavailable, aggregateCreateFailed, noHALUnit, os(OSStatus, String) }
 
@@ -299,7 +310,8 @@ private func renderCallback(inRefCon: UnsafeMutableRawPointer,
         } else {
             for i in 0..<count { let v = sp[i] * g; dp[i] = v; let m = abs(v); if m > peak { peak = m } }
         }
-        engine.storePeak(peak)
+        let channels = Int(outData.pointee.mBuffers.mNumberChannels)
+        engine.storePeak(peak, frames: count / max(1, channels))
     }
     return noErr
 }

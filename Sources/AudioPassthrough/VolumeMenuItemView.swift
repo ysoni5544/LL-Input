@@ -9,12 +9,14 @@ final class VolumeMenuItemView: NSView {
     private let titleLabel = NSTextField(labelWithString: "Volume")
     private let resetButton = NSButton()
     private let sliderType: SliderType
+    private let maxDisplay: Float   // 1.0 (100%) or 2.0 (200%) depending on boost
     var onChange: ((Float) -> Void)?
 
-    init(gain: Float, sliderType: SliderType) {
+    init(gain: Float, sliderType: SliderType, maxDisplay: Float) {
         self.sliderType = sliderType
+        self.maxDisplay = maxDisplay
         super.init(frame: NSRect(x: 0, y: 0, width: 300, height: 44))
-        build(initialGain: gain)
+        build(initialGain: min(gain, maxDisplay))
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -36,7 +38,7 @@ final class VolumeMenuItemView: NSView {
 
         switch sliderType {
         case .linear:
-            slider.minValue = 0; slider.maxValue = 2
+            slider.minValue = 0; slider.maxValue = Double(maxDisplay)
         case .bipolar:
             slider.minValue = -1; slider.maxValue = 1
             slider.numberOfTickMarks = 3
@@ -96,7 +98,7 @@ final class VolumeMenuItemView: NSView {
     private func position(forGain gain: Float) -> Double {
         switch sliderType {
         case .linear:
-            return Double(min(max(gain, 0), 2))
+            return Double(min(max(gain, 0), maxDisplay))
         case .bipolar:
             if gain <= 0 { return -1 }
             let db = 20 * log10(gain)

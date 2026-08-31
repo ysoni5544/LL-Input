@@ -22,6 +22,7 @@ final class DualDeviceHALEngine: PassthroughEngineProtocol {
 
     private var ring: RingBuffer?
     private var channels: Int = 2
+    private var activeSampleRate: Double = 48_000
 
     // Peak level (0...1) written from the input IOProc, read by the app poll.
     private let peakLevel = ManagedAtomic<UInt32>(0)
@@ -140,6 +141,7 @@ final class DualDeviceHALEngine: PassthroughEngineProtocol {
 
     private func buildAndStart() throws {
         let rate = desiredSampleRate ?? AudioDevices.nominalSampleRate(inputDevice)
+        activeSampleRate = rate > 0 ? rate : 48_000
         if desiredSampleRate != nil {
             AudioDevices.setNominalSampleRate(inputDevice, rate)
             AudioDevices.setNominalSampleRate(outputDevice, rate)
@@ -188,12 +190,23 @@ final class DualDeviceHALEngine: PassthroughEngineProtocol {
         ring.write(ptr, count: sampleCount)
 
         // Track peak magnitude for idle detection (cheap, realtime-safe).
+        // Use peak-hold with time-based decay: brief dips between words/beats must
+        // not read as silence, so we keep the recent max and let it fall off over
+        // roughly a second of true silence (independent of buffer size).
         var peak: Float = 0
         for i in 0..<sampleCount {
             let m = abs(ptr[i])
             if m > peak { peak = m }
         }
-        peakLevel.store(peak.bitPattern, ordering: .relaxed)
+        // Per-buffer decay derived from sample count: ~-6 dB over ~0.4 s of silence.
+        // dt = frames/rate; decay = exp(-dt / tau), tau ≈ 0.6 s.
+        let frames = Float(sampleCount / max(1, channels))
+        let rate = Float(activeSampleRate)
+        let dt = frames / rate
+        let decay = exp(-dt / 0.6)
+        let held = Float(bitPattern: peakLevel.load(ordering: .relaxed))
+        let newPeak = max(peak, held * decay)
+        peakLevel.store(newPeak.bitPattern, ordering: .relaxed)
     }
 
     fileprivate func handleOutput(_ outData: UnsafeMutablePointer<AudioBufferList>) {
