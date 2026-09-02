@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// Which menu rows can be hidden via Settings.
 enum MenuOption: String, CaseIterable {
@@ -54,6 +55,61 @@ enum CountdownStyle: String, CaseIterable {
     }
 }
 
+/// Where/how the countdown appears in the menu bar.
+enum TimerLayout: String, CaseIterable {
+    case classic   // timer replaces the plug icon
+    case compact   // plug icon stays; timer shown beside it at 50% size
+
+    var title: String {
+        switch self {
+        case .classic: return "Replace icon with timer"
+        case .compact: return "Timer beside icon (small)"
+        }
+    }
+}
+
+/// Preset colors for the menu-bar countdown text.
+enum TimerColor: String, CaseIterable {
+    case accent, white, red, green, orange, blue
+
+    var title: String {
+        switch self {
+        case .accent: return "System accent"
+        case .white:  return "White"
+        case .red:    return "Red"
+        case .green:  return "Green"
+        case .orange: return "Orange"
+        case .blue:   return "Blue"
+        }
+    }
+
+    var nsColor: NSColor {
+        switch self {
+        case .accent: return .controlAccentColor
+        case .white:  return .labelColor
+        case .red:    return .systemRed
+        case .green:  return .systemGreen
+        case .orange: return .systemOrange
+        case .blue:   return .systemBlue
+        }
+    }
+}
+
+/// What the second button in the setup window does.
+enum SetupCloseAction: String, CaseIterable {
+    case quit       // "Close Application" — terminates the app
+    case minimize   // "Minimize to Menu Bar" — just closes the setup window
+
+    var title: String {
+        switch self {
+        case .quit:     return "Close Application"
+        case .minimize: return "Minimize to Menu Bar"
+        }
+    }
+
+    var buttonLabel: String { title }
+}
+
 /// Central, persisted app settings.
 final class AppSettings {
     static let shared = AppSettings()
@@ -66,6 +122,46 @@ final class AppSettings {
         static let boostEnabled = "boostEnabled"
         static let masterLimit = "masterVolumeLimit"
         static let countdownStyle = "countdownStyle"
+        static let timerLayout = "timerLayout"
+        static let timerColor = "timerColor"
+        static let timerTextScale = "timerTextScale"
+        static let setupCloseAction = "setupCloseAction"
+        static let showSetupAtLogin = "showSetupAtLogin"
+    }
+
+    /// Countdown text size as a percentage of the base size (default 100%).
+    /// Stored 50…200 (percent); base sizes differ per layout.
+    var timerTextScale: Int {
+        get {
+            if d.object(forKey: Key.timerTextScale) == nil { return 100 }
+            return min(max(d.integer(forKey: Key.timerTextScale), 50), 200)
+        }
+        set { d.set(min(max(newValue, 50), 200), forKey: Key.timerTextScale) }
+    }
+
+    /// Countdown position/size in the menu bar. Defaults to classic.
+    var timerLayout: TimerLayout {
+        get { TimerLayout(rawValue: d.string(forKey: Key.timerLayout) ?? "") ?? .classic }
+        set { d.set(newValue.rawValue, forKey: Key.timerLayout) }
+    }
+
+    /// Countdown text color. Defaults to accent.
+    var timerColor: TimerColor {
+        get { TimerColor(rawValue: d.string(forKey: Key.timerColor) ?? "") ?? .accent }
+        set { d.set(newValue.rawValue, forKey: Key.timerColor) }
+    }
+
+    /// Which action the setup window's secondary button performs. Defaults to quit.
+    var setupCloseAction: SetupCloseAction {
+        get { SetupCloseAction(rawValue: d.string(forKey: Key.setupCloseAction) ?? "") ?? .quit }
+        set { d.set(newValue.rawValue, forKey: Key.setupCloseAction) }
+    }
+
+    /// Whether to show the setup window when launched at login. Defaults to false
+    /// (login launches start quietly without the setup window).
+    var showSetupAtLogin: Bool {
+        get { d.bool(forKey: Key.showSetupAtLogin) }
+        set { d.set(newValue, forKey: Key.showSetupAtLogin) }
     }
 
     /// Menu-bar idle countdown display style. Defaults to rounded.
@@ -129,8 +225,9 @@ final class AppSettings {
 
     /// Reset every app setting to defaults, including remembered device/timeout.
     func resetAllToDefault() {
-        for key in [Key.sliderType, Key.hidden, Key.engine, Key.boostEnabled, Key.masterLimit,
-                    Key.countdownStyle,
+        for key in [Key.sliderType, Key.hidden, Key.engine, Key.boostEnabled,
+                    Key.masterLimit, Key.countdownStyle, Key.timerLayout, Key.timerColor,
+                    Key.timerTextScale, Key.setupCloseAction, Key.showSetupAtLogin,
                     "idleTimeoutSeconds", "selectedInputUID", "inputVolume"] {
             d.removeObject(forKey: key)
         }

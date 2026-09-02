@@ -25,10 +25,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// into the actual linear gain, scaled by the master limit and capped at the
     /// boost ceiling. The menu/setup sliders show 0–100% (or 0–200% with boost),
     /// but their 100% maps to the master limit.
+    /// Convert the displayed volume fraction (slider's own scale, 1.0 = 100%)
+    /// into the actual linear gain, scaled by the master limit and capped at the
+    /// boost ceiling.
     private func actualGain(forDisplay display: Float) -> Float {
-        let limit = AppSettings.shared.masterLimit          // 0…maxGain
-        let g = display * limit                              // 100% display → limit
-        return min(g, AppSettings.shared.maxGain)
+        let cap = AppSettings.shared.maxGain
+        let limit = min(AppSettings.shared.masterLimit, cap)
+        return min(display * limit, cap)
     }
 
     /// Push the current display volume to the engine as real gain.
@@ -101,9 +104,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Turn on Game Mode by default (the setup panel can change it).
         applyMode(.game)
 
-        // Show the setup panel on boot — UNLESS the app was launched at login,
-        // in which case it should start quietly in the menu bar.
-        if launchedAtLogin(notification) {
+        // On login launch, show setup only if the user opted in; otherwise start
+        // quietly. On a normal (user-initiated) launch, always show setup.
+        let isLogin = launchedAtLogin(notification)
+        if isLogin && !AppSettings.shared.showSetupAtLogin {
             // Auto-start with the remembered input, if there is one.
             if selectedInputID != nil, AudioDevices.defaultOutput() != 0 {
                 restart()
@@ -548,31 +552,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Big-font countdown shown in the menu bar while silence is being timed.
-    /// Format depends on the user's chosen countdown style.
+    /// Format depends on the user's chosen countdown style; color and layout
+    /// (replace icon vs. beside icon at 50%) follow their settings.
     private func updateCountdownIcon(remaining seconds: Int) {
+        let settings = AppSettings.shared
         let text: String
-        switch AppSettings.shared.countdownStyle {
+        switch settings.countdownStyle {
         case .rounded:
-            // Whole minutes ("5m") until under a minute, then seconds ("45s").
             if seconds >= 60 {
                 text = "\(Int(ceil(Double(seconds) / 60.0)))m"
             } else {
                 text = "\(seconds)s"
             }
         case .seconds:
-            // Classic exact clock.
             if seconds >= 60 {
                 text = String(format: "%d:%02d", seconds / 60, seconds % 60)
             } else {
                 text = "\(seconds)"
             }
         }
-        let attr = NSAttributedString(string: text, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 15, weight: .bold),
-            .foregroundColor: NSColor.controlAccentColor
-        ])
-        statusItem.button?.image = nil
-        statusItem.button?.attributedTitle = attr
+
+        let color = settings.timerColor.nsColor
+        guard let button = statusItem.button else { return }
+
+        // Base font size scaled by the user's timer text size (100% = 15pt).
+        let scale = CGFloat(settings.timerTextScale) / 100.0
+        let fontSize = 15.0 * scale
+
+        // Render into an image so the status item centers it reliably at any size
+        // (attributed-title baseline centering drifts with font size).
+        let plug = (settings.timerLayout == .compact) ? loadTemplateImage(named: "plug_on") : nil
+        button.imagePosition = .imageOnly
+        button.attributedTitle = NSAttributedString(string: "")
+        button.title = ""
+        button.image = timerImage(text: text, size: fontSize, color: color, leadingIcon: plug)
+    }
+
+    /// Draws the countdown text (optionally preceded by the plug icon) into a
+    /// vertically-centered image sized to the menu bar height.
+    private func timerImage(text: String, size: CGFloat, color: NSColor, leadingIcon: NSImage?) -> NSImage {
+        let font = NSFont.monospacedDigitSystemFont(ofSize: size, weight: .bold)
+        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let textSize = (text as NSString).size(withAttributes: attrs)
+
+        let barHeight: CGFloat = 22        // standard menu-bar height
+        // Plug scales with the font size (base 18pt at 100% / 15pt font).
+        let iconSide: CGFloat = leadingIcon != nil ? min(barHeight, max(10, size * 1.2)) : 0
+        let gap: CGFloat = leadingIcon != nil ? 3 : 0
+        let width = ceil(iconSide + gap + textSize.width) + 2
+        let image = NSImage(size: NSSize(width: width, height: barHeight))
+
+        image.lockFocus()
+        var x: CGFloat = 1
+        if let icon = leadingIcon {
+            let iconRect = NSRect(x: x, y: (barHeight - iconSide) / 2, width: iconSide, height: iconSide)
+            // Tint the template plug to the accent color instead of raw black.
+            let tinted = tintedImage(icon, color: color)
+            tinted.draw(in: iconRect)
+            x += iconSide + gap
+        }
+        // Center text vertically using its actual bounding box.
+        let ty = (barHeight - textSize.height) / 2
+        (text as NSString).draw(at: NSPoint(x: x, y: ty), withAttributes: attrs)
+        image.unlockFocus()
+
+        // Non-template so the chosen color is preserved (template would flatten it).
+        image.isTemplate = false
+        return image
+    }
+
+    /// Returns a copy of a template image filled with the given color.
+    private func tintedImage(_ image: NSImage, color: NSColor) -> NSImage {
+        let out = NSImage(size: image.size)
+        out.lockFocus()
+        color.set()
+        let rect = NSRect(origin: .zero, size: image.size)
+        image.draw(in: rect)
+        rect.fill(using: .sourceAtop)
+        out.unlockFocus()
+        out.isTemplate = false
+        return out
     }
 
     // MARK: - Setup panel (boot)
@@ -654,6 +713,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.onVolumeConfigChange = { [weak self] in
             guard let self = self else { return }
             self.applyVolumeToEngine()
+            // Accent color / font size can affect the plug icon — refresh it,
+            // unless a countdown is currently drawn (the poll will redraw that).
+            if self.silentSince == nil {
+                self.updateStatusIcon(active: self.engine.isRunning)
+            }
             self.rebuildMenu()
         }
 
@@ -735,6 +799,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             engine.stop()
             stopIdlePoll()
         } else {
+            // Require both an input and an output; otherwise prompt via setup.
+            guard selectedInputID != nil, AudioDevices.defaultOutput() != 0 else {
+                let alert = NSAlert()
+                alert.messageText = "Select an input and output"
+                alert.informativeText = "Choose an input and output device before starting. Opening setup so you can pick them."
+                alert.alertStyle = .warning
+                alert.addButton(withTitle: "Open Setup")
+                alert.addButton(withTitle: "Cancel")
+                if alert.runModal() == .alertFirstButtonReturn { showSetupPanel() }
+                return
+            }
             restart()
             if engine.isRunning { startIdlePollIfNeeded() }
         }
@@ -759,11 +834,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Clear any countdown text before restoring the icon.
         statusItem.button?.attributedTitle = NSAttributedString(string: "")
         statusItem.button?.title = ""
+        statusItem.button?.imagePosition = .imageOnly
+
+        let settings = AppSettings.shared
+        // Plug size scales with the Font Size setting (base 18pt at 100%),
+        // capped to the menu-bar height.
+        let side = min(22, max(12, 18 * CGFloat(settings.timerTextScale) / 100.0))
 
         // Prefer the bundled 3.5mm plug icon (solid = on, outline = off).
         let iconName = active ? "plug_on" : "plug_off"
-        if let img = loadTemplateImage(named: iconName) {
-            statusItem.button?.image = img
+        if let img = loadTemplateImage(named: iconName, side: side) {
+            // Tint to the chosen accent color; keep template only for the default
+            // "accent = system" case so it still adapts to light/dark menu bars.
+            if settings.timerColor == .accent {
+                img.isTemplate = true
+                statusItem.button?.image = img
+            } else {
+                statusItem.button?.image = tintedImage(img, color: settings.timerColor.nsColor)
+            }
             return
         }
         // Fallback to an SF Symbol if the asset is missing.
@@ -776,16 +864,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// Loads a menu-bar template image from the app bundle's Resources.
-    /// Uses the @2x asset for crisp rendering and marks it as a template so
-    /// macOS tints it for light/dark menu bars.
-    private func loadTemplateImage(named base: String) -> NSImage? {
+    /// Loads a menu-bar template image from the app bundle's Resources at a size.
+    private func loadTemplateImage(named base: String, side: CGFloat = 18) -> NSImage? {
         let candidates = ["\(base)@2x", base]
         for name in candidates {
             if let url = Bundle.main.url(forResource: name, withExtension: "png"),
                let img = NSImage(contentsOf: url) {
                 img.isTemplate = true
-                img.size = NSSize(width: 18, height: 18)
+                img.size = NSSize(width: side, height: side)
                 return img
             }
         }

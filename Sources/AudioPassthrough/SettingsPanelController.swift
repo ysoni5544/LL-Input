@@ -13,7 +13,14 @@ final class SettingsPanelController: NSWindowController {
     private var sliderPopup: NSPopUpButton!
     private var enginePopup: NSPopUpButton!
     private var countdownPopup: NSPopUpButton!
+    private var layoutPopup: NSPopUpButton!
+    private var colorPopup: NSPopUpButton!
+    private var sizePopup: NSPopUpButton!
+    private var setupActionPopup: NSPopUpButton!
+    private var showSetupAtLoginCheck: NSButton!
     private var launchAtLoginCheck: NSButton!
+    private var menuItemsContainer: NSStackView!
+    private var disclosureButton: NSButton!
     private var boostCheck: NSButton!
     private var masterSlider: NSSlider!
     private var masterLabel: NSTextField!
@@ -22,10 +29,14 @@ final class SettingsPanelController: NSWindowController {
     private let sliderTypes: [SliderType] = SliderType.allCases
     private let engines: [EngineKind] = EngineKind.allCases
     private let countdownStyles: [CountdownStyle] = CountdownStyle.allCases
+    private let layouts: [TimerLayout] = TimerLayout.allCases
+    private let timerColors: [TimerColor] = TimerColor.allCases
+    private let setupActions: [SetupCloseAction] = SetupCloseAction.allCases
+    private let sizeOptions: [Int] = [50, 75, 100, 125, 150, 175, 200]
 
     init() {
         let win = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 460, height: 660),
+            contentRect: NSRect(x: 0, y: 0, width: 460, height: 700),
             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         win.title = "LL Input — Settings"
         win.center()
@@ -66,6 +77,24 @@ final class SettingsPanelController: NSWindowController {
                                       target: self, action: #selector(launchAtLoginToggled(_:)))
         launchAtLoginCheck.state = LoginItem.isEnabled ? .on : .off
         stack.addArrangedSubview(launchAtLoginCheck)
+
+        showSetupAtLoginCheck = NSButton(checkboxWithTitle: "Show setup window when launched at login",
+                                         target: self, action: #selector(showSetupAtLoginToggled(_:)))
+        showSetupAtLoginCheck.state = settings.showSetupAtLogin ? .on : .off
+        stack.addArrangedSubview(showSetupAtLoginCheck)
+
+        let setupActionCaption = NSTextField(labelWithString: "Setup window secondary button")
+        setupActionCaption.font = NSFont.systemFont(ofSize: 12)
+        setupActionCaption.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(setupActionCaption)
+        setupActionPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        setupActionPopup.addItems(withTitles: setupActions.map { $0.title })
+        if let idx = setupActions.firstIndex(of: settings.setupCloseAction) {
+            setupActionPopup.selectItem(at: idx)
+        }
+        setupActionPopup.target = self
+        setupActionPopup.action = #selector(setupActionChanged)
+        stack.addArrangedSubview(setupActionPopup)
 
         // --- Volume slider type ---
         stack.addArrangedSubview(sectionTitle("Volume Slider Type"))
@@ -132,16 +161,84 @@ final class SettingsPanelController: NSWindowController {
         countdownPopup.action = #selector(countdownStyleChanged)
         stack.addArrangedSubview(countdownPopup)
 
-        // --- Menu visibility ---
-        stack.addArrangedSubview(sectionTitle("Show Menu Items"))
+        // --- Timer layout ---
+        let layoutCaption = NSTextField(labelWithString: "Timer position")
+        layoutCaption.font = NSFont.systemFont(ofSize: 12)
+        layoutCaption.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(layoutCaption)
+        layoutPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        layoutPopup.addItems(withTitles: layouts.map { $0.title })
+        if let idx = layouts.firstIndex(of: settings.timerLayout) { layoutPopup.selectItem(at: idx) }
+        layoutPopup.target = self
+        layoutPopup.action = #selector(layoutChanged)
+        stack.addArrangedSubview(layoutPopup)
+
+        // --- Timer color ---
+        let colorCaption = NSTextField(labelWithString: "Accent color")
+        colorCaption.font = NSFont.systemFont(ofSize: 12)
+        colorCaption.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(colorCaption)
+        colorPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        colorPopup.addItems(withTitles: timerColors.map { $0.title })
+        if let idx = timerColors.firstIndex(of: settings.timerColor) { colorPopup.selectItem(at: idx) }
+        colorPopup.target = self
+        colorPopup.action = #selector(colorChanged)
+        stack.addArrangedSubview(colorPopup)
+
+        // --- Timer text size ---
+        let sizeCaption = NSTextField(labelWithString: "Font size")
+        sizeCaption.font = NSFont.systemFont(ofSize: 12)
+        sizeCaption.textColor = .secondaryLabelColor
+        stack.addArrangedSubview(sizeCaption)
+        sizePopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        sizePopup.addItems(withTitles: sizeOptions.map { "\($0)%" })
+        if let idx = sizeOptions.firstIndex(of: settings.timerTextScale) {
+            sizePopup.selectItem(at: idx)
+        }
+        sizePopup.target = self
+        sizePopup.action = #selector(sizeChanged)
+        stack.addArrangedSubview(sizePopup)
+
+        // --- Menu visibility (collapsible) ---
+        let disclosure = NSButton()
+        disclosure.bezelStyle = .regularSquare
+        disclosure.isBordered = false
+        disclosure.imagePosition = .imageOnly
+        disclosure.image = NSImage(systemSymbolName: "chevron.right",
+                                   accessibilityDescription: "Expand")
+        disclosure.setButtonType(.momentaryChange)
+        disclosure.target = self
+        disclosure.action = #selector(toggleMenuItemsSection(_:))
+        disclosure.setContentHuggingPriority(.required, for: .horizontal)
+
+        // Bold title beside the chevron; clicking it also toggles the section.
+        let headerLabel = sectionTitle("Show Menu Items")
+        let headerClick = NSClickGestureRecognizer(target: self, action: #selector(headerLabelClicked))
+        headerLabel.addGestureRecognizer(headerClick)
+
+        let headerRow = NSStackView(views: [disclosure, headerLabel])
+        headerRow.orientation = .horizontal
+        headerRow.spacing = 6
+        headerRow.alignment = .centerY
+        stack.addArrangedSubview(headerRow)
+        self.disclosureButton = disclosure
+
+        // Container holding the checkboxes, hidden/shown by the disclosure.
+        menuItemsContainer = NSStackView()
+        menuItemsContainer.orientation = .vertical
+        menuItemsContainer.alignment = .leading
+        menuItemsContainer.spacing = 6
+        menuItemsContainer.translatesAutoresizingMaskIntoConstraints = false
         for option in MenuOption.allCases where option.canHide {
             let cb = NSButton(checkboxWithTitle: option.title, target: self,
                               action: #selector(hideToggled(_:)))
             cb.state = settings.isHidden(option) ? .off : .on // checked = shown
-            cb.tag = MenuOption.allCases.firstIndex(of: option) ?? 0
             hideChecks.append((option, cb))
-            stack.addArrangedSubview(cb)
+            menuItemsContainer.addArrangedSubview(cb)
         }
+        stack.addArrangedSubview(menuItemsContainer)
+        // Start collapsed.
+        setMenuItemsExpanded(false)
 
         // --- Reset buttons ---
         let resetHides = NSButton(title: "Reset Menu Visibility",
@@ -182,10 +279,47 @@ final class SettingsPanelController: NSWindowController {
         settings.boostEnabled = (sender.state == .on)
         // Rescale the master slider's range to the new ceiling and clamp value.
         masterSlider.maxValue = Double(settings.maxGain)
-        // masterLimit getter already clamps to maxGain; reflect it in the UI.
         masterSlider.doubleValue = Double(settings.masterLimit)
         masterLabel.stringValue = masterText()
         onVolumeConfigChange?()
+    }
+
+    @objc private func layoutChanged() {
+        settings.timerLayout = layouts[max(0, layoutPopup.indexOfSelectedItem)]
+        onVolumeConfigChange?() // triggers a menu/icon refresh
+    }
+
+    @objc private func colorChanged() {
+        settings.timerColor = timerColors[max(0, colorPopup.indexOfSelectedItem)]
+        onVolumeConfigChange?()
+    }
+
+    @objc private func sizeChanged() {
+        settings.timerTextScale = sizeOptions[max(0, sizePopup.indexOfSelectedItem)]
+        onVolumeConfigChange?()
+    }
+
+    @objc private func toggleMenuItemsSection(_ sender: NSButton) {
+        setMenuItemsExpanded(menuItemsContainer.isHidden)
+    }
+
+    @objc private func headerLabelClicked() {
+        setMenuItemsExpanded(menuItemsContainer.isHidden)
+    }
+
+    private func setMenuItemsExpanded(_ expanded: Bool) {
+        menuItemsContainer.isHidden = !expanded
+        let symbol = expanded ? "chevron.down" : "chevron.right"
+        disclosureButton.image = NSImage(systemSymbolName: symbol,
+                                         accessibilityDescription: expanded ? "Collapse" : "Expand")
+    }
+
+    @objc private func setupActionChanged() {
+        settings.setupCloseAction = setupActions[max(0, setupActionPopup.indexOfSelectedItem)]
+    }
+
+    @objc private func showSetupAtLoginToggled(_ sender: NSButton) {
+        settings.showSetupAtLogin = (sender.state == .on)
     }
 
     @objc private func masterChanged() {
@@ -254,6 +388,11 @@ final class SettingsPanelController: NSWindowController {
         if let idx = sliderTypes.firstIndex(of: settings.sliderType) { sliderPopup.selectItem(at: idx) }
         if let idx = engines.firstIndex(of: settings.engineKind) { enginePopup.selectItem(at: idx) }
         if let idx = countdownStyles.firstIndex(of: settings.countdownStyle) { countdownPopup.selectItem(at: idx) }
+        if let idx = layouts.firstIndex(of: settings.timerLayout) { layoutPopup.selectItem(at: idx) }
+        if let idx = timerColors.firstIndex(of: settings.timerColor) { colorPopup.selectItem(at: idx) }
+        if let idx = sizeOptions.firstIndex(of: settings.timerTextScale) { sizePopup.selectItem(at: idx) }
+        if let idx = setupActions.firstIndex(of: settings.setupCloseAction) { setupActionPopup.selectItem(at: idx) }
+        showSetupAtLoginCheck.state = settings.showSetupAtLogin ? .on : .off
         boostCheck.state = settings.boostEnabled ? .on : .off
         masterSlider.maxValue = Double(settings.maxGain)
         masterSlider.doubleValue = Double(settings.masterLimit)

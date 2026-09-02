@@ -119,7 +119,8 @@ final class SetupPanelController: NSWindowController {
         startButton.keyEquivalent = "\r" // Enter triggers Start
         startButton.translatesAutoresizingMaskIntoConstraints = false
 
-        let quitButton = NSButton(title: "Close Application", target: self, action: #selector(quitTapped))
+        let closeAction = AppSettings.shared.setupCloseAction
+        let quitButton = NSButton(title: closeAction.buttonLabel, target: self, action: #selector(closeTapped))
         quitButton.bezelStyle = .rounded
         quitButton.translatesAutoresizingMaskIntoConstraints = false
 
@@ -352,8 +353,20 @@ final class SetupPanelController: NSWindowController {
     // MARK: - Actions
 
     @objc private func startTapped() {
-        guard !inputDevices.isEmpty, !outputDevices.isEmpty else {
-            NSSound.beep()
+        // Require both an input and an output before starting.
+        guard !inputDevices.isEmpty, inputPopup.indexOfSelectedItem >= 0,
+              !outputDevices.isEmpty, outputPopup.indexOfSelectedItem >= 0 else {
+            let alert = NSAlert()
+            alert.messageText = "Select an input and output"
+            var missing: [String] = []
+            if inputDevices.isEmpty { missing.append("input") }
+            if outputDevices.isEmpty { missing.append("output") }
+            alert.informativeText = missing.isEmpty
+                ? "Please choose both an input and an output device before starting."
+                : "No \(missing.joined(separator: " or ")) device is available. Connect one, then try again."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.beginSheetModal(for: window ?? NSApp.keyWindow ?? NSWindow(), completionHandler: nil)
             return
         }
         let inputID = inputDevices[max(0, inputPopup.indexOfSelectedItem)].id
@@ -365,7 +378,13 @@ final class SetupPanelController: NSWindowController {
         close()
     }
 
-    @objc private func quitTapped() {
-        onQuit?()
+    @objc private func closeTapped() {
+        switch AppSettings.shared.setupCloseAction {
+        case .quit:
+            onQuit?()
+        case .minimize:
+            // Just dismiss the setup window; app keeps running in the menu bar.
+            close()
+        }
     }
 }
